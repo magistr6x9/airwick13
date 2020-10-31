@@ -33,6 +33,8 @@
 #define DEFAULT_MODE		1						// режим таймера по молчанию, если в EEPROM пусто (индекс от нуля)
 #define MODE_COUNT			3						// Число режимов таймера
 
+#define BUTTON_MOTOR_PRESSED (PINB & _BV(PIN_BUTTON_MOTOR))
+#define BUTTON_MODE_PRESSED (PINB & _BV(PIN_BUTTON_MODE))
 
 uint8_t Addr EEMEM;									// регистрируем переменную в EEPROM по адресу "Addr"	
 
@@ -40,8 +42,7 @@ const uint16_t motor_on_time[MODE_COUNT] =
 	{ 375, 1125, 2250 }; 							// 1 час = 375, 3 часа, 6 часов. Через какое время срабатывает мотор (автоматически, по таймеру)
 
 volatile bool sleep_flag = false;
-volatile bool button_motor_flag = false;
-volatile bool button_mode_flag = false;
+volatile bool button_flag = false;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //										ПРЕРЫВАНИЯ И ФУНКЦИИ
@@ -83,8 +84,7 @@ ISR(WDT_vect)
 // Нажали кнопку
 ISR(PCINT0_vect)
 { 
-	if (PINB & _BV(PIN_BUTTON_MODE))  button_mode_flag  = true;
-	if (PINB & _BV(PIN_BUTTON_MOTOR)) button_motor_flag = true;
+	button_flag = true;
 }
 
 // Замеряем яркость
@@ -174,38 +174,41 @@ int main(void)
 	
 	while(1)
 	{
-		// Нажата кнопка MOTOR
-		if (button_motor_flag)
+		if (button_flag)
 		{
-			motor_work();
-			main_timer = 0;
-			button_motor_flag = false;
-		}	
-		
-		// Нажата кнопка MODE
-		if (button_mode_flag)
-		{
-			cli();									// отключаем и потом заново включаем прерывания при записи в EEPROM
-			
-			mode++;
-			if (mode == MODE_COUNT) mode = 0;		// меняем режимы по кругу
-			
-			eeprom_write_byte(&Addr, mode);			// пишем в EEPROM текущий режим
-			
-			for (uint8_t t=0; t<mode+1; t++)
+			// устранение "дребезга"
+			_delay_ms(100);
+
+			if (BUTTON_MOTOR_PRESSED)
 			{
-				led_blink();						// Мигаем диодом в соответсвии с выбранным режимом
-				_delay_ms(500);
+				motor_work();
+				main_timer = 0;
 			}
-			
-			main_timer = 0;							// сбрасываем таймеры
-			light_timer = 0;
-			_delay_ms(2000);
-			
-			sei();
-			
-			button_mode_flag = false;
-		}	
+			else if (BUTTON_MODE_PRESSED)
+			{
+				cli();									// отключаем и потом заново включаем прерывания при записи в EEPROM
+				
+				mode++;
+				if (mode == MODE_COUNT) mode = 0;		// меняем режимы по кругу
+				
+				eeprom_write_byte(&Addr, mode);			// пишем в EEPROM текущий режим
+				
+				for (uint8_t t=0; t<mode+1; t++)
+				{
+					led_blink();						// Мигаем диодом в соответсвии с выбранным режимом
+					_delay_ms(500);
+				}
+				
+				main_timer = 0;							// сбрасываем таймеры
+				light_timer = 0;
+				_delay_ms(2000);
+				
+				sei();
+				
+			}
+
+			button_flag = false;
+		}
 		
 		// Если сработал таймер Watch Dog (WDT)
 		if (!sleep_flag)
